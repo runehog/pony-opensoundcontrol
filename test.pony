@@ -70,6 +70,7 @@ class iso _TestParseMessageWithEveryKindOfArgument is UnitTest
         .push('i')
         .push('b')
         .push('f')
+        .push('t')
         .push(0)
         .push(0)      // arg-list padding
         .push(0)
@@ -97,6 +98,14 @@ class iso _TestParseMessageWithEveryKindOfArgument is UnitTest
         .push(0x80)
         .push(0x00)
         .push(0x00)
+        .push(0x00)   // timetag data: 0.0
+        .push(0x00)
+        .push(0x00)
+        .push(0x00)
+        .push(0x00)
+        .push(0x00)
+        .push(0x00)
+        .push(0x00)
       end
     let expected_addr: OSCAddress val = recover
       let expected_addr_elements: Array[String] = Array[String val]()
@@ -110,7 +119,7 @@ class iso _TestParseMessageWithEveryKindOfArgument is UnitTest
     | let message: OSCMessage =>
       h.log("got message: " + message.string())
       h.assert_eq[OSCAddress](message.address, expected_addr)
-      h.assert_eq[USize](message.args.size(), 4)
+      h.assert_eq[USize](message.args.size(), 5)
       // Arg 0: string
       match message.args(0)
       | let string_val: String val =>
@@ -140,12 +149,19 @@ class iso _TestParseMessageWithEveryKindOfArgument is UnitTest
         h.fail("Expected args(2) to be an Array[U8]")
       end
       // Arg 3: F32
-      h.log("bits for expected value: " + F32(1.0).bits().string())
       match message.args(3)
       | let f32_val: F32 =>
         h.assert_eq[F32](f32_val, F32(1.0))
       else
         h.fail("Expected args(3) to be an F32")
+      end
+      // Arg 4: OSCTimeTag
+      match message.args(4)
+      | let timetag_val: OSCTimeTag val =>
+        h.assert_eq[U32](timetag_val.seconds, U32(0))
+        h.assert_eq[U32](timetag_val.fraction, U32(0))
+      else
+        h.fail("Expected args(4) to be a timetag")
       end
     | let err: OSCParseError =>
       h.fail("parse error: " + err.description)

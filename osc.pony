@@ -72,6 +72,20 @@ primitive OSC
                   (packet(arg_offset+3).u32()      )
                 arg_offset = arg_offset + 4
                 args.push(recover val F32.from_bits(int_val) end)
+              | 't' =>
+                let timetag_val: OSCTimeTag val = recover val
+                  OSCTimeTag(
+                    (packet(arg_offset  ).u32() << 24) or
+                    (packet(arg_offset+1).u32() << 16) or
+                    (packet(arg_offset+2).u32() <<  8) or
+                    (packet(arg_offset+3).u32()      ),
+                    (packet(arg_offset+4).u32() << 24) or
+                    (packet(arg_offset+5).u32() << 16) or
+                    (packet(arg_offset+6).u32() <<  8) or
+                    (packet(arg_offset+7).u32()      ))
+                end
+                arg_offset = arg_offset + 8
+                args.push(timetag_val)
               | 's' =>
                 // Calculate string arg extent and copy it.
                 let arg_end = packet.find(0, arg_offset)
