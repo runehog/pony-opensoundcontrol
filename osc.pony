@@ -1,7 +1,5 @@
 // OpenSoundControl 1.0 parsing and generation.
 
-use "collections"
-
 type OSCData is (I32 | F32 | OSCTimeTag val | String val | Array[U8] val)
 
 class OSCParseError
@@ -27,6 +25,10 @@ primitive OSC
       OSCParseError("malformed OSC packet")
     end
 
+  // Implements OSC's round-to-32-bit-boundary pattern.
+  fun pad_four(value: USize): USize =>
+    (value + 3) and not 0x03
+
   fun parse_message(packet: Array[U8] val): OSCParseResult ? =>
     // Calculate address extent & parse address.
     let addr_size = packet.find(0)
@@ -38,7 +40,6 @@ primitive OSC
     var type_tag_offset = packet.find(',', addr_size) + 1
     let type_tag_end = packet.find(0, type_tag_offset)
     let arg_count = type_tag_end - type_tag_offset
-
     if arg_count == 0 then
       recover val
         OSCMessage(address, recover val Array[OSCData]() end)
@@ -47,8 +48,7 @@ primitive OSC
       // Find start of arg data (first non-NULL char after type_tag_end).
       try
         recover val
-          var arg_offset = packet.find(0, type_tag_end, 0,
-            lambda(l: box->U8!, r: box->U8!): Bool => l != r end)
+          var arg_offset = pad_four(type_tag_end + 1)
 
           let args_val: Array[OSCData] val = recover val
             let args: Array[OSCData] = Array[OSCData](arg_count)
@@ -92,8 +92,7 @@ primitive OSC
                 let arg_array: Array[U8] val = recover
                   packet.slice(arg_offset, arg_end)
                 end
-                arg_offset = packet.find(0, arg_end, 0,
-                  lambda(l: box->U8!, r: box->U8!): Bool => l != r end)
+                arg_offset = pad_four(arg_end)
                 let string_arg: String val = recover String.from_array(arg_array) end
                 args.push(string_arg)
               | 'b' =>
@@ -106,10 +105,15 @@ primitive OSC
                 let blob_arg: Array[U8] val = recover
                   packet.slice(arg_offset + 4, arg_offset + 4 + blobsize_val)
                 end
+                if blob_arg.size() != blobsize_val then
+                  error
+                end
                 // Skip to end of blob, including any padding bytes.
-                let blobsize_val_padded = (blobsize_val + 3) and not 0x03
+                let blobsize_val_padded = pad_four(blobsize_val)
                 arg_offset = arg_offset + 4 + blobsize_val_padded
                 args.push(blob_arg)
+              else
+                return OSCParseError("unsupported type char " + t.string())
               end
             until type_tag_offset == type_tag_end end
             args
@@ -183,7 +187,8 @@ class val OSCMessage is Stringable
             result.append("str:")
             result.append(string_arg)
           | let blob_arg: Array[U8] box =>
-            result.append("blob")
+            result.append("blob:#")
+            result.append(blob_arg.size().string())
           else
             result.append("???")
           end
