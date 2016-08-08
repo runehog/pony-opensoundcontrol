@@ -1,6 +1,10 @@
 // OpenSoundControl 1.0 parsing and generation.
 
-type OSCData is (I32 | F32 | OSCTimeTag val | String val | Array[U8] val)
+use "collections"
+use "debug"
+use "net"
+
+type OSCData is (I32 | F32 | OSCTimeTag | String val | Array[U8] val)
 
 class OSCParseError
   let description: String
@@ -41,98 +45,93 @@ primitive OSC
     let type_tag_end = packet.find(0, type_tag_offset)
     let arg_count = type_tag_end - type_tag_offset
     if arg_count == 0 then
-      recover val
-        OSCMessage(address, recover val Array[OSCData]() end)
-      end
+      OSCMessage(address, recover val Array[OSCData]() end)
     else
       // Find start of arg data (first non-NULL char after type_tag_end).
       try
-        recover val
-          var arg_offset = pad_four(type_tag_end + 1)
+        var arg_offset = pad_four(type_tag_end + 1)
 
-          let args_val: Array[OSCData] val = recover val
-            let args: Array[OSCData] = Array[OSCData](arg_count)
-            repeat
-              let t: U8 = packet(type_tag_offset)
-              type_tag_offset = type_tag_offset + 1
-              match t
-              | 'i' =>
-                let int_val: I32 =
-                  (packet(arg_offset  ).i32() << 24) or
-                  (packet(arg_offset+1).i32() << 16) or
-                  (packet(arg_offset+2).i32() <<  8) or
-                  (packet(arg_offset+3).i32()      )
-                arg_offset = arg_offset + 4
-                args.push(recover val I32(int_val) end)
-              | 'f' =>
-                let int_val: U32 =
+        let args_val: Array[OSCData] val = recover val
+          let args: Array[OSCData] = Array[OSCData](arg_count)
+          repeat
+            let t: U8 = packet(type_tag_offset)
+            type_tag_offset = type_tag_offset + 1
+            match t
+            | 'i' =>
+              let int_val: I32 =
+                (packet(arg_offset  ).i32() << 24) or
+                (packet(arg_offset+1).i32() << 16) or
+                (packet(arg_offset+2).i32() <<  8) or
+                (packet(arg_offset+3).i32()      )
+              arg_offset = arg_offset + 4
+              args.push(recover val I32(int_val) end)
+            | 'f' =>
+              let int_val: U32 =
+                (packet(arg_offset  ).u32() << 24) or
+                (packet(arg_offset+1).u32() << 16) or
+                (packet(arg_offset+2).u32() <<  8) or
+                (packet(arg_offset+3).u32()      )
+              arg_offset = arg_offset + 4
+              args.push(recover val F32.from_bits(int_val) end)
+            | 't' =>
+              let timetag_val: OSCTimeTag = OSCTimeTag(
                   (packet(arg_offset  ).u32() << 24) or
                   (packet(arg_offset+1).u32() << 16) or
                   (packet(arg_offset+2).u32() <<  8) or
-                  (packet(arg_offset+3).u32()      )
-                arg_offset = arg_offset + 4
-                args.push(recover val F32.from_bits(int_val) end)
-              | 't' =>
-                let timetag_val: OSCTimeTag val = recover val
-                  OSCTimeTag(
-                    (packet(arg_offset  ).u32() << 24) or
-                    (packet(arg_offset+1).u32() << 16) or
-                    (packet(arg_offset+2).u32() <<  8) or
-                    (packet(arg_offset+3).u32()      ),
-                    (packet(arg_offset+4).u32() << 24) or
-                    (packet(arg_offset+5).u32() << 16) or
-                    (packet(arg_offset+6).u32() <<  8) or
-                    (packet(arg_offset+7).u32()      ))
-                end
-                arg_offset = arg_offset + 8
-                args.push(timetag_val)
-              | 's' =>
-                // Calculate string arg extent and copy it.
-                let arg_end = packet.find(0, arg_offset)
-                let arg_array: Array[U8] val = recover
-                  packet.slice(arg_offset, arg_end)
-                end
-                arg_offset = pad_four(arg_end)
-                let string_arg: String val = recover String.from_array(arg_array) end
-                args.push(string_arg)
-              | 'b' =>
-                // Calculate blob arg extent and copy it.
-                let blobsize_val: USize =
-                  (packet(arg_offset  ).usize() << 24) or
-                  (packet(arg_offset+1).usize() << 16) or
-                  (packet(arg_offset+2).usize() <<  8) or
-                  (packet(arg_offset+3).usize()      )
-                let blob_arg: Array[U8] val = recover
-                  packet.slice(arg_offset + 4, arg_offset + 4 + blobsize_val)
-                end
-                if blob_arg.size() != blobsize_val then
-                  error
-                end
-                // Skip to end of blob, including any padding bytes.
-                let blobsize_val_padded = pad_four(blobsize_val)
-                arg_offset = arg_offset + 4 + blobsize_val_padded
-                args.push(blob_arg)
-              else
-                return OSCParseError("unsupported type char " + t.string())
+                  (packet(arg_offset+3).u32()      ),
+                  (packet(arg_offset+4).u32() << 24) or
+                  (packet(arg_offset+5).u32() << 16) or
+                  (packet(arg_offset+6).u32() <<  8) or
+                  (packet(arg_offset+7).u32()      ))
+              arg_offset = arg_offset + 8
+              args.push(timetag_val)
+            | 's' =>
+              // Calculate string arg extent and copy it.
+              let arg_end = packet.find(0, arg_offset)
+              let arg_array: Array[U8] val = recover
+                packet.slice(arg_offset, arg_end)
               end
-            until type_tag_offset == type_tag_end end
-            args
-          end
-          OSCMessage(address, args_val)
+              let arg_len: USize = (arg_end - arg_offset) + 1
+              arg_offset = arg_offset + pad_four(arg_len)
+              let string_arg: String val = recover String.from_array(arg_array) end
+              args.push(string_arg)
+            | 'b' =>
+              // Calculate blob arg extent and copy it.
+              let blobsize_val: USize =
+                (packet(arg_offset  ).usize() << 24) or
+                (packet(arg_offset+1).usize() << 16) or
+                (packet(arg_offset+2).usize() <<  8) or
+                (packet(arg_offset+3).usize()      )
+              let blob_arg: Array[U8] val = recover
+                packet.slice(arg_offset + 4, arg_offset + 4 + blobsize_val)
+              end
+              if blob_arg.size() != blobsize_val then
+                error
+              end
+              // Skip to end of blob, including any padding bytes.
+              let blobsize_val_padded = pad_four(blobsize_val)
+              arg_offset = arg_offset + 4 + blobsize_val_padded
+              args.push(blob_arg)
+            else
+              return OSCParseError("unsupported type char " + t.string())
+            end
+          until type_tag_offset == type_tag_end end
+          args
         end
+        OSCMessage(address, args_val)
       else
         OSCParseError("truncated OSC packet")
       end
     end
 
   fun parse_bundle(packet: Array[U8] val): OSCParseResult =>
-    OSCParseError("not implemented")
+    OSCParseError("bundles are not implemented yet")
 
 class val OSCTimeTag is (Stringable & Equatable[OSCTimeTag])
   let seconds: U32
   let fraction: U32
 
-  new create(seconds': U32, fraction': U32) =>
+  new val create(seconds': U32, fraction': U32) =>
     seconds = seconds'
     fraction = fraction'
 
@@ -157,11 +156,12 @@ class val OSCTimeTag is (Stringable & Equatable[OSCTimeTag])
   fun box eq(that: OSCTimeTag box): Bool =>
     (seconds == that.seconds) and (fraction == that.fraction)
 
+
 class val OSCMessage is Stringable
-  let address: OSCAddress val
+  let address: OSCAddress
   let args: Array[OSCData] val
 
-  new create(address': OSCAddress, args': Array[OSCData] val) =>
+  new val create(address': OSCAddress, args': Array[OSCData] val) =>
     address = address'
     args = args'
 
@@ -184,8 +184,7 @@ class val OSCMessage is Stringable
             result.append("f32:")
             result.append(f32_arg.string())
           | let string_arg: String box =>
-            result.append("str:")
-            result.append(string_arg)
+            result.append("str:\"" + string_arg + "\"")
           | let blob_arg: Array[U8] box =>
             result.append("blob:#")
             result.append(blob_arg.size().string())
@@ -201,18 +200,94 @@ class val OSCMessage is Stringable
       result
     end
 
+    fun box binary(): Array[ByteSeq] iso^ ? =>
+      let wb = WriteBuffer
+      // Address.
+      wb.u8('/')
+      let address_string: String = address.string()
+      wb.write(address_string)
+      wb.u8('\0')
+      // Account for leading '/' and trailing null character.
+      let address_string_len = address_string.size() + 2
+      let padded_address_len = OSC.pad_four(address_string_len)
+      for i in Range(address_string_len, padded_address_len) do
+        wb.u8('\0')
+      end
+      // Type tags.
+      wb.u8(',')
+      var arg_count: USize = 0
+      for v in args.values() do
+        match v
+        | let i32_val: I32 =>
+          wb.u8('i')
+        | let f32_val: F32 =>
+          wb.u8('f')
+        | let timetag_arg: OSCTimeTag =>
+          wb.u8('t')
+        | let string_arg: String val =>
+          wb.u8('s')
+        | let blob_arg: Array[U8] val =>
+          wb.u8('b')
+        else
+          error
+        end
+        arg_count = arg_count + 1
+      end
+      wb.u8('\0')
+      // Account for leading ',' and trailing null character.
+      let tag_len = args.size() + 2
+      let padded_tag_len = OSC.pad_four(tag_len)
+      for i in Range(tag_len, padded_tag_len) do
+        wb.u8('\0')
+      end
+      // Args.
+      arg_count = 0
+      for v in args.values() do
+        match v
+        | let i32_arg: I32 =>
+          wb.i32_be(i32_arg)
+        | let f32_arg: F32 =>
+          wb.f32_be(f32_arg)
+        | let timetag_arg: OSCTimeTag =>
+          wb.u32_be(timetag_arg.seconds)
+          wb.u32_be(timetag_arg.fraction)
+        | let string_arg: String val =>
+          wb.write(string_arg)
+          wb.u8('\0')
+          let string_len = string_arg.size() + 1
+          let padded_string_len = OSC.pad_four(string_len)
+          for i in Range(string_len, padded_string_len) do
+            wb.u8('\0')
+          end
+        | let blob_arg: Array[U8] val =>
+          let blob_len = blob_arg.size()
+          let padded_blob_len = OSC.pad_four(blob_len)
+          wb.u32_be(blob_len.u32())
+          wb.write(blob_arg)
+          for i in Range(blob_len, padded_blob_len) do
+            wb.u8('\0')
+          end
+        else
+          error
+        end
+        arg_count = arg_count + 1
+      end
+      // Generate byte sequences.
+      wb.done()
+
+
 class val OSCBundle
   let time: OSCTimeTag
-  let elements: Array[(OSCMessage | OSCBundle)]
+  let elements: Array[(OSCMessage | OSCBundle)] val
 
-  new create(time': OSCTimeTag, elements': Array[(OSCMessage | OSCBundle)]) =>
+  new val create(time': OSCTimeTag, elements': Array[(OSCMessage | OSCBundle)] val) =>
     time = time'
     elements = elements'
 
 class val OSCAddress is (Stringable & Equatable[OSCAddress])
   let elements: Array[String]
 
-  new create(address: String) =>
+  new val create(address: String) =>
     let elements': Array[String] = address.split("/")
     elements = Array[String]()
     for element in elements'.values() do
