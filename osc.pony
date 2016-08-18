@@ -1,8 +1,8 @@
 // OpenSoundControl 1.0 parsing and generation.
 
+use "buffered"
 use "collections"
 use "debug"
-use "net"
 
 type OSCData is (I32 | F32 | OSCTimeTag | String val | Array[U8] val)
 
@@ -201,7 +201,7 @@ class val OSCMessage is Stringable
     end
 
     fun box binary(): Array[ByteSeq] iso^ ? =>
-      let wb = WriteBuffer
+      let wb = Writer
       // Address.
       wb.u8('/')
       let address_string: String = address.string()
